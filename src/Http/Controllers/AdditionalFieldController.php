@@ -122,6 +122,29 @@ class AdditionalFieldController {
                     break;
             }
         });
+	Schema::table('self_registrations', function (Blueprint $table) use($additionalField) {
+            switch ($additionalField->type) {
+                case 'dropdown':
+                    $table->unsignedInteger('custom_' . $additionalField->id)->nullable();
+                    break;
+                case 'date':
+                    $table->date('custom_' . $additionalField->id)->nullable();
+                    break;
+                case 'file':
+                    $table->string('custom_' . $additionalField->id)->nullable();
+                    $table->string('custom_' . $additionalField->id . '_original_name')->nullable();
+                    break;
+                case 'text':
+                    $table->string('custom_' . $additionalField->id)->nullable();
+                    break;
+                case 'freetext':
+                    $table->text('custom_' . $additionalField->id)->nullable();
+                    break;
+                case 'number':
+                    $table->unsignedBigInteger('custom_' . $additionalField->id)->nullable();
+                    break;
+            }
+        });
 
         if ($result) {
             event(new AdditionalFieldCreatedEvent($additionalField));
