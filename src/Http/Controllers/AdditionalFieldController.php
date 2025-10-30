@@ -3,6 +3,7 @@
 namespace Rohitpavaskar\AdditionalField\Http\Controllers;
 
 use Config;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
@@ -17,40 +18,66 @@ use Rohitpavaskar\AdditionalField\Http\Requests\StoreAdditionalFieldRequest;
 use Rohitpavaskar\AdditionalField\Http\Requests\UpdateAdditionalFieldRequest;
 use Rohitpavaskar\AdditionalField\Events\AdditionalFieldCreatedEvent;
 
-class AdditionalFieldController {
+class AdditionalFieldController
+{
 
     /**
      * Display a listing of the resource.
      *
      * @return \Illuminate\Http\Response
      */
-    public function index() {
-        return Cache::tags(['additional_fields'])->rememberForever('custom_fields_' . app()->getLocale(), function() {
-                    $additionalFields = AdditionalField::with(['translations'])->get()->toArray();
-                    $dropdownOptions = array();
-                    foreach ($additionalFields as $key => $additionalField) {
-                        if ($additionalField['is_default']) {
-                            $additionalFields[$key]['text'] = trans('translations.default_field_' . $additionalField['column_name']);
-                        } elseif ($additionalField['type'] == 'dropdown' && !$additionalField['parent_id']) {
-                            $dropdownOptions[$additionalField['column_name']] = $this->dropdowns($additionalField['id']);
+    public function index()
+    {
+        return Cache::tags(['additional_fields'])->rememberForever('custom_fields_' . app()->getLocale(), function () {
+            $additionalFields = AdditionalField::with(['translations'])->get()->toArray();
+            $dropdownOptions = array();
+            foreach ($additionalFields as $key => $additionalField) {
+                if ($additionalField['is_default']) {
+                    $additionalFields[$key]['text'] = trans('translations.default_field_' . $additionalField['column_name']);
+                } elseif ($additionalField['type'] == 'dropdown' && !$additionalField['parent_id']) {
+                    $options = $this->dropdowns($additionalField['id']) ?? [];
+
+                    // --- Sort Alphabetically (A–Z) ---
+                    if (!empty($options)) {
+                        // If it's an array of arrays (associative), sort by 'name'
+                        if (is_array(reset($options)) && array_key_exists('name', reset($options))) {
+                            usort($options, function ($a, $b) {
+                                return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
+                            });
+                        } else {
+                            natcasesort($options);
                         }
-                        $additionalFields[$key]['type_text'] = array(
-                            'dropdown' => trans('translations.dropdown'),
-                            'date' => trans('translations.date'),
-                            'file' => trans('translations.file'),
-                            'text' => trans('translations.text'),
-                            'freetext' => trans('translations.free_text'),
-                            'number' => trans('translations.number'),
-                            'password' => trans('translations.type_password'),
-                            'email' => trans('translations.type_email')
-                                )[$additionalField['type']];
                     }
-                    return array(
-                        'fields' => array_map('replaceKey', $additionalFields),
-                        'dropdowns' => $dropdownOptions
-                    );
-                });
+
+                    $options = array_map(function ($opt) {
+                        if (is_array($opt)) {
+                            $opt['value'] = $opt['id'] ?? null;
+                            $opt['label'] = $opt['text'] ?? $opt['name'] ?? '';
+                        }
+                        return $opt;
+                    }, $options);
+
+                    // Reindex numerically
+                    $dropdownOptions[$additionalField['column_name']] = array_values($options);
+                }
+                $additionalFields[$key]['type_text'] = array(
+                    'dropdown' => trans('translations.dropdown'),
+                    'date' => trans('translations.date'),
+                    'file' => trans('translations.file'),
+                    'text' => trans('translations.text'),
+                    'freetext' => trans('translations.free_text'),
+                    'number' => trans('translations.number'),
+                    'password' => trans('translations.type_password'),
+                    'email' => trans('translations.type_email')
+                )[$additionalField['type']];
+            }
+            return array(
+                'fields' => array_map('replaceKey', $additionalFields),
+                'dropdowns' => $dropdownOptions
+            );
+        });
     }
+
 
     /**
      * Store a newly created resource in storage.
@@ -58,7 +85,8 @@ class AdditionalFieldController {
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(StoreAdditionalFieldRequest $request) {
+    public function store(StoreAdditionalFieldRequest $request)
+    {
         $sequenceNo = AdditionalField::max('sequence_no') + 1;
         $additionalField = new AdditionalField();
         $additionalField->name = $request->name;
@@ -99,7 +127,7 @@ class AdditionalFieldController {
 
         $this->clearCache('custom_fields_{{language}}', $request->language);
 
-        Schema::table('users', function (Blueprint $table) use($additionalField) {
+        Schema::table('users', function (Blueprint $table) use ($additionalField) {
             switch ($additionalField->type) {
                 case 'dropdown':
                     $table->unsignedInteger('custom_' . $additionalField->id)->nullable();
@@ -122,7 +150,7 @@ class AdditionalFieldController {
                     break;
             }
         });
-	Schema::table('self_registrations', function (Blueprint $table) use($additionalField) {
+        Schema::table('self_registrations', function (Blueprint $table) use ($additionalField) {
             switch ($additionalField->type) {
                 case 'dropdown':
                     $table->unsignedInteger('custom_' . $additionalField->id)->nullable();
@@ -149,16 +177,20 @@ class AdditionalFieldController {
         if ($result) {
             event(new AdditionalFieldCreatedEvent($additionalField));
             return response(
-                    array(
-                "message" => __('translations.created_msg', array('attribute' => trans('translations.additional_field'))),
-                "status" => true,
-                    ), 201);
+                array(
+                    "message" => __('translations.created_msg', array('attribute' => trans('translations.additional_field'))),
+                    "status" => true,
+                ),
+                201
+            );
         }
         return response(
-                array(
-            "message" => trans('translations.error_processing_request'),
-            "status" => true,
-                ), 500);
+            array(
+                "message" => trans('translations.error_processing_request'),
+                "status" => true,
+            ),
+            500
+        );
     }
 
     /**
@@ -167,9 +199,10 @@ class AdditionalFieldController {
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function show($id) {
+    public function show($id)
+    {
         $additionalField = AdditionalField::with(['translations'])
-                        ->where('id', $id)->get()->toArray();
+            ->where('id', $id)->get()->toArray();
         $additionalFieldArr = array();
         if ($additionalField) {
             $additionalFieldArr = array_map('replaceKey', $additionalField)[0];
@@ -187,7 +220,8 @@ class AdditionalFieldController {
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function update(UpdateAdditionalFieldRequest $request, $id) {
+    public function update(UpdateAdditionalFieldRequest $request, $id)
+    {
         $additionalField = AdditionalField::findOrFail($id);
         if ($additionalField->type == 'dropdown') {
             $additionalField->parent_id = $request->parent_id;
@@ -198,7 +232,8 @@ class AdditionalFieldController {
         $additionalField->available_for_filters = ($request->available_for_filters) ? '1' : '';
         $result = $additionalField->save();
         AdditionalFieldTranslation::updateOrCreate(
-                ['additional_field_id' => $id, 'language' => $request->language], ['name' => $request->name]
+            ['additional_field_id' => $id, 'language' => $request->language],
+            ['name' => $request->name]
         );
         $optionArr = array();
         $optionIds = array();
@@ -218,7 +253,8 @@ class AdditionalFieldController {
                         'language' => $request->language,
                     ]));
                     AdditionalFieldDropdownTranslation::firstOrCreate(
-                            ['additional_field_dropdown_id' => $dropdown->id, 'language' => Config::get('app.fallback_locale')], ['name' => $option['name']]
+                        ['additional_field_dropdown_id' => $dropdown->id, 'language' => Config::get('app.fallback_locale')],
+                        ['name' => $option['name']]
                     );
                 } else {
                     array_push($optionIds, $option['id']);
@@ -228,17 +264,19 @@ class AdditionalFieldController {
                     }
                     $dropdown->save();
                     AdditionalFieldDropdownTranslation::updateOrCreate(
-                            ['additional_field_dropdown_id' => $option['id'], 'language' => $request->language], ['name' => $option['name']]
+                        ['additional_field_dropdown_id' => $option['id'], 'language' => $request->language],
+                        ['name' => $option['name']]
                     );
                     AdditionalFieldDropdownTranslation::firstOrCreate(
-                            ['additional_field_dropdown_id' => $option['id'], 'language' => Config::get('app.fallback_locale')], ['name' => $option['name']]
+                        ['additional_field_dropdown_id' => $option['id'], 'language' => Config::get('app.fallback_locale')],
+                        ['name' => $option['name']]
                     );
                 }
             }
         }
         AdditionalFieldDropdown::whereNotIn('id', $optionIds)
-                ->where('additional_field_id', $id)
-                ->delete();
+            ->where('additional_field_id', $id)
+            ->delete();
         $this->clearCache('custom_dropdowns_' . $id . '_{{language}}', $request->language);
         $allDrodownValues = AdditionalFieldDropdown::where('additional_field_id', $request->parent_id)->get();
         $this->clearCache('custom_dropdowns_' . $id . '_' . 0 . '_{{language}}', $request->language);
@@ -249,16 +287,20 @@ class AdditionalFieldController {
 
         if ($result) {
             return response(
-                    array(
-                "message" => __('translations.updated_msg', array('attribute' => trans('translations.additional_field'))),
-                "status" => true,
-                    ), 201);
+                array(
+                    "message" => __('translations.updated_msg', array('attribute' => trans('translations.additional_field'))),
+                    "status" => true,
+                ),
+                201
+            );
         }
         return response(
-                array(
-            "message" => trans('translations.error_processing_request'),
-            "status" => true,
-                ), 500);
+            array(
+                "message" => trans('translations.error_processing_request'),
+                "status" => true,
+            ),
+            500
+        );
     }
 
     /**
@@ -267,17 +309,20 @@ class AdditionalFieldController {
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function destroy($id) {
+    public function destroy($id)
+    {
         $addtionalField = AdditionalField::findOrFail($id);
         $addtionalField->delete();
         AdditionalField::where('parent_id', $id)
-                ->update(['parent_id' => NULL]);
+            ->update(['parent_id' => NULL]);
         $this->clearCache('custom_fields_{{language}}', Config::get('app.fallback_locale'));
         return response(
-                array(
-            "message" => __('translations.deleted_msg', array('attribute' => trans('translations.additional_field'))),
-            "status" => true,
-                ), 200);
+            array(
+                "message" => __('translations.deleted_msg', array('attribute' => trans('translations.additional_field'))),
+                "status" => true,
+            ),
+            200
+        );
     }
 
     /**
@@ -286,22 +331,23 @@ class AdditionalFieldController {
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function dropdowns($id) {
+    public function dropdowns($id)
+    {
         $parentId = request('parent_id', 0);
 
-        return Cache::tags(['additional_fields'])->rememberForever('custom_dropdowns_' . $id . '_' . $parentId . '_' . app()->getLocale(), function() use($id, $parentId) {
-                    $additionalFieldDropdown = AdditionalFieldDropdown::with(['translations'])
-                                    ->when($parentId, function($query) use($parentId) {
-                                        return $query->where('parent_id', $parentId);
-                                    })
-                                    ->where('additional_field_id', $id)->get()->toArray();
-                    $dropdowns = array_map('replaceKey', $additionalFieldDropdown);
-                    $finalDropdowns = array();
-                    foreach ($dropdowns as $dropdown) {
-                        $finalDropdowns[$dropdown['id']] = $dropdown;
-                    }
-                    return $finalDropdowns;
-                });
+        return Cache::tags(['additional_fields'])->rememberForever('custom_dropdowns_' . $id . '_' . $parentId . '_' . app()->getLocale(), function () use ($id, $parentId) {
+            $additionalFieldDropdown = AdditionalFieldDropdown::with(['translations'])
+                ->when($parentId, function ($query) use ($parentId) {
+                    return $query->where('parent_id', $parentId);
+                })
+                ->where('additional_field_id', $id)->get()->toArray();
+            $dropdowns = array_map('replaceKey', $additionalFieldDropdown);
+            $finalDropdowns = array();
+            foreach ($dropdowns as $dropdown) {
+                $finalDropdowns[$dropdown['id']] = $dropdown;
+            }
+            return $finalDropdowns;
+        });
     }
 
     /**
@@ -310,16 +356,17 @@ class AdditionalFieldController {
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function multiple_dropdowns($id) {
+    public function multiple_dropdowns($id)
+    {
         $parentIds = request('parent_ids', '');
 
         $additionalField = AdditionalField::find($id);
         $parentsDropdowns = $this->dropdowns($additionalField->parent_id);
         $additionalFieldDropdown = AdditionalFieldDropdown::with(['translations'])
-                        ->when($parentIds, function($query) use($parentIds) {
-                            return $query->whereIn('parent_id', explode(',', $parentIds));
-                        })
-                        ->where('additional_field_id', $id)->get()->toArray();
+            ->when($parentIds, function ($query) use ($parentIds) {
+                return $query->whereIn('parent_id', explode(',', $parentIds));
+            })
+            ->where('additional_field_id', $id)->get()->toArray();
         $dropdowns = array_map('replaceKey', $additionalFieldDropdown);
         $finalDropdowns = array();
         foreach ($parentsDropdowns as $dp) {
@@ -334,7 +381,8 @@ class AdditionalFieldController {
         return $finalDropdowns;
     }
 
-    function clearCache($key, $language) {
+    function clearCache($key, $language)
+    {
         Cache::tags('additional_fields')->flush();
         $languages = Language::all();
         Cache::forget(str_replace("{{language}}", $language, $key));
@@ -343,7 +391,8 @@ class AdditionalFieldController {
         }
     }
 
-    public function updateSequence(UpdateSequenceRequest $request) {
+    public function updateSequence(UpdateSequenceRequest $request)
+    {
         $data = $request->additional_fields;
         $sequence = 1;
         for ($i = 0; $i < count($data); $i++) {
@@ -354,10 +403,11 @@ class AdditionalFieldController {
         }
         $this->clearCache('custom_fields_{{language}}', Config::get('app.fallback_locale'));
         return response(
-                array(
-            "message" => __('translations.updated_msg', array('atttribute' => trans('translations.additional_field'))),
-            "status" => true,
-                ), 200);
+            array(
+                "message" => __('translations.updated_msg', array('atttribute' => trans('translations.additional_field'))),
+                "status" => true,
+            ),
+            200
+        );
     }
-
 }
