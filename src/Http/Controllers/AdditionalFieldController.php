@@ -335,19 +335,32 @@ class AdditionalFieldController
     {
         $parentId = request('parent_id', 0);
 
-        return Cache::tags(['additional_fields'])->rememberForever('custom_dropdowns_' . $id . '_' . $parentId . '_' . app()->getLocale(), function () use ($id, $parentId) {
-            $additionalFieldDropdown = AdditionalFieldDropdown::with(['translations'])
-                ->when($parentId, function ($query) use ($parentId) {
-                    return $query->where('parent_id', $parentId);
-                })
-                ->where('additional_field_id', $id)->get()->toArray();
-            $dropdowns = array_map('replaceKey', $additionalFieldDropdown);
-            $finalDropdowns = array();
-            foreach ($dropdowns as $dropdown) {
-                $finalDropdowns[$dropdown['id']] = $dropdown;
+        return Cache::tags(['additional_fields'])->rememberForever(
+            'custom_dropdowns_' . $id . '_' . $parentId . '_' . app()->getLocale(),
+            function () use ($id, $parentId) {
+                $additionalFieldDropdown = AdditionalFieldDropdown::with(['translations'])
+                    ->when($parentId, function ($query) use ($parentId) {
+                        return $query->where('parent_id', $parentId);
+                    })
+                    ->where('additional_field_id', $id)
+                    ->get()
+                    ->toArray();
+
+                // Replace keys as before
+                $dropdowns = array_map('replaceKey', $additionalFieldDropdown);
+
+                $finalDropdowns = [];
+                foreach ($dropdowns as $dropdown) {
+                    // ✅ Add 'value' and 'label' keys
+                    $dropdown['value'] = $dropdown['id'];
+                    $dropdown['label'] = $dropdown['text'] ?? $dropdown['name'] ?? '';
+
+                    $finalDropdowns[$dropdown['id']] = $dropdown;
+                }
+
+                return $finalDropdowns;
             }
-            return $finalDropdowns;
-        });
+        );
     }
 
     /**
