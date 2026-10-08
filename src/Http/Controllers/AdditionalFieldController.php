@@ -20,16 +20,99 @@ use Rohitpavaskar\AdditionalField\Events\AdditionalFieldCreatedEvent;
 
 class AdditionalFieldController
 {
+    // Add these properties
+    protected $connection = null;
+
+    // Add onConnection() method
+    public function onConnection(string $connection): self
+    {
+        $this->connection = $connection;
+        return $this;
+    }
+
+    // Reset after use
+    private function reset(): void
+    {
+        $this->connection = null;
+    }
+
 
     /**
      * Display a listing of the resource.
      *
      * @return \Illuminate\Http\Response
      */
+    // public function index()
+    // {
+    //     return Cache::tags(['additional_fields'])->rememberForever('custom_fields_' . app()->getLocale(), function () {
+    //         $additionalFields = AdditionalField::with(['translations'])->get()->toArray();
+    //         $dropdownOptions = array();
+    //         foreach ($additionalFields as $key => $additionalField) {
+    //             if ($additionalField['is_default']) {
+    //                 $additionalFields[$key]['text'] = trans('translations.default_field_' . $additionalField['column_name']);
+    //             } elseif ($additionalField['type'] == 'dropdown' && !$additionalField['parent_id']) {
+    //                 $options = $this->dropdowns($additionalField['id']) ?? [];
+
+    //                 // --- Sort Alphabetically (A–Z) ---
+    //                 if (!empty($options)) {
+    //                     // If it's an array of arrays (associative), sort by 'name'
+    //                     if (is_array(reset($options)) && array_key_exists('name', reset($options))) {
+    //                         usort($options, function ($a, $b) {
+    //                             return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
+    //                         });
+    //                     } else {
+    //                         natcasesort($options);
+    //                     }
+    //                 }
+
+    //                 $options = array_map(function ($opt) {
+    //                     if (is_array($opt)) {
+    //                         $opt['value'] = $opt['id'] ?? null;
+    //                         $opt['label'] = $opt['text'] ?? $opt['name'] ?? '';
+    //                     }
+    //                     return $opt;
+    //                 }, $options);
+
+    //                 // Reindex numerically
+    //                 $dropdownOptions[$additionalField['column_name']] = array_values($options);
+    //             }
+    //             $additionalFields[$key]['type_text'] = array(
+    //                 'dropdown' => trans('translations.dropdown'),
+    //                 'date' => trans('translations.date'),
+    //                 'file' => trans('translations.file'),
+    //                 'text' => trans('translations.text'),
+    //                 'freetext' => trans('translations.free_text'),
+    //                 'number' => trans('translations.number'),
+    //                 'password' => trans('translations.type_password'),
+    //                 'email' => trans('translations.type_email')
+    //             )[$additionalField['type']];
+    //         }
+    //         return array(
+    //             'fields' => array_map('replaceKey', $additionalFields),
+    //             'dropdowns' => $dropdownOptions
+    //         );
+    //     });
+    // }
+
     public function index()
     {
-        return Cache::tags(['additional_fields'])->rememberForever('custom_fields_' . app()->getLocale(), function () {
-            $additionalFields = AdditionalField::with(['translations'])->get()->toArray();
+        $additionalFieldModel = new AdditionalField();
+        if ($this->connection) {
+            $additionalFieldModel->setConnection($this->connection);
+        }
+
+        // Include connection/db name in cache key to separate tenant data
+        $cacheKey = 'custom_fields_' . app()->getLocale();
+        if ($this->connection) {
+            $cacheKey = $this->connection . '_custom_fields_' . app()->getLocale();
+        }
+
+        return Cache::tags(['additional_fields'])->rememberForever($cacheKey, function () use ($additionalFieldModel) {
+            $additionalFields = $additionalFieldModel
+                ->with(['translations'])
+                ->get()
+                ->toArray();
+
             $dropdownOptions = array();
             foreach ($additionalFields as $key => $additionalField) {
                 if ($additionalField['is_default']) {
@@ -37,9 +120,7 @@ class AdditionalFieldController
                 } elseif ($additionalField['type'] == 'dropdown' && !$additionalField['parent_id']) {
                     $options = $this->dropdowns($additionalField['id']) ?? [];
 
-                    // --- Sort Alphabetically (A–Z) ---
                     if (!empty($options)) {
-                        // If it's an array of arrays (associative), sort by 'name'
                         if (is_array(reset($options)) && array_key_exists('name', reset($options))) {
                             usort($options, function ($a, $b) {
                                 return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
@@ -57,22 +138,24 @@ class AdditionalFieldController
                         return $opt;
                     }, $options);
 
-                    // Reindex numerically
                     $dropdownOptions[$additionalField['column_name']] = array_values($options);
                 }
                 $additionalFields[$key]['type_text'] = array(
                     'dropdown' => trans('translations.dropdown'),
-                    'date' => trans('translations.date'),
-                    'file' => trans('translations.file'),
-                    'text' => trans('translations.text'),
+                    'date'     => trans('translations.date'),
+                    'file'     => trans('translations.file'),
+                    'text'     => trans('translations.text'),
                     'freetext' => trans('translations.free_text'),
-                    'number' => trans('translations.number'),
+                    'number'   => trans('translations.number'),
                     'password' => trans('translations.type_password'),
-                    'email' => trans('translations.type_email')
+                    'email'    => trans('translations.type_email')
                 )[$additionalField['type']];
             }
+
+            $this->reset();
+
             return array(
-                'fields' => array_map('replaceKey', $additionalFields),
+                'fields'    => array_map('replaceKey', $additionalFields),
                 'dropdowns' => $dropdownOptions
             );
         });
@@ -331,14 +414,58 @@ class AdditionalFieldController
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
+    // public function dropdowns($id)
+    // {
+    //     $parentId = request('parent_id', 0);
+
+    //     return Cache::tags(['additional_fields'])->rememberForever(
+    //         'custom_dropdowns_' . $id . '_' . $parentId . '_' . app()->getLocale(),
+    //         function () use ($id, $parentId) {
+    //             $additionalFieldDropdown = AdditionalFieldDropdown::with(['translations'])
+    //                 ->when($parentId, function ($query) use ($parentId) {
+    //                     return $query->where('parent_id', $parentId);
+    //                 })
+    //                 ->where('additional_field_id', $id)
+    //                 ->get()
+    //                 ->toArray();
+
+    //             // Replace keys as before
+    //             $dropdowns = array_map('replaceKey', $additionalFieldDropdown);
+
+    //             $finalDropdowns = [];
+    //             foreach ($dropdowns as $dropdown) {
+    //                 // ✅ Add 'value' and 'label' keys
+    //                 $dropdown['value'] = $dropdown['id'];
+    //                 $dropdown['label'] = $dropdown['text'] ?? $dropdown['name'] ?? '';
+
+    //                 $finalDropdowns[$dropdown['id']] = $dropdown;
+    //             }
+
+    //             return $finalDropdowns;
+    //         }
+    //     );
+    // }
+
     public function dropdowns($id)
     {
         $parentId = request('parent_id', 0);
 
+        $dropdownModel = new AdditionalFieldDropdown();
+        if ($this->connection) {
+            $dropdownModel->setConnection($this->connection);
+        }
+
+        // Include connection in cache key
+        $cacheKey = 'custom_dropdowns_' . $id . '_' . $parentId . '_' . app()->getLocale();
+        if ($this->connection) {
+            $cacheKey = $this->connection . '_custom_dropdowns_' . $id . '_' . $parentId . '_' . app()->getLocale();
+        }
+
         return Cache::tags(['additional_fields'])->rememberForever(
-            'custom_dropdowns_' . $id . '_' . $parentId . '_' . app()->getLocale(),
-            function () use ($id, $parentId) {
-                $additionalFieldDropdown = AdditionalFieldDropdown::with(['translations'])
+            $cacheKey,
+            function () use ($id, $parentId, $dropdownModel) {
+                $additionalFieldDropdown = $dropdownModel
+                    ->with(['translations'])
                     ->when($parentId, function ($query) use ($parentId) {
                         return $query->where('parent_id', $parentId);
                     })
@@ -346,15 +473,12 @@ class AdditionalFieldController
                     ->get()
                     ->toArray();
 
-                // Replace keys as before
-                $dropdowns = array_map('replaceKey', $additionalFieldDropdown);
+                $dropdowns = array_map('replaceKey', $additionalFieldDropdown); 
 
                 $finalDropdowns = [];
                 foreach ($dropdowns as $dropdown) {
-                    // ✅ Add 'value' and 'label' keys
                     $dropdown['value'] = $dropdown['id'];
                     $dropdown['label'] = $dropdown['text'] ?? $dropdown['name'] ?? '';
-
                     $finalDropdowns[$dropdown['id']] = $dropdown;
                 }
 
