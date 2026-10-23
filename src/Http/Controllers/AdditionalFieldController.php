@@ -109,6 +109,7 @@ class AdditionalFieldController
 
         return Cache::tags(['additional_fields'])->rememberForever($cacheKey, function () use ($additionalFieldModel) {
             $additionalFields = $additionalFieldModel
+                ->newQuery()
                 ->with(['translations'])
                 ->get()
                 ->toArray();
@@ -465,6 +466,7 @@ class AdditionalFieldController
             $cacheKey,
             function () use ($id, $parentId, $dropdownModel) {
                 $additionalFieldDropdown = $dropdownModel
+                    ->newQuery()
                     ->with(['translations'])
                     ->when($parentId, function ($query) use ($parentId) {
                         return $query->where('parent_id', $parentId);
